@@ -48,8 +48,8 @@ Sistema interativo que combina:
 1. **Pré-requisitos**
    - Clonar o repositório:
      ```bash
-     git clone <URL_DO_REPOSITORIO>
-     cd <NOME_DO_REPOSITORIO>
+     git clone https://github.com/JotaPablo/interrupcao.git
+     cd interrupcao
      ```
    - Instalar o **Visual Studio** Code com as seguintes extensões:
      - **Raspberry Pi Pico SDK**
