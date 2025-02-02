@@ -31,7 +31,7 @@ static void gpio_irq_handler(uint gpio, uint32_t events); // Função para geren
 
 static volatile bool led_ativo = false; // Guarda o estado atual do led
 // Esta função alterna o estado do LED
-bool turn_led(uint LED_GPIO);
+void turn_led(uint LED_GPIO);
 
 
 int main()
@@ -111,7 +111,7 @@ int main()
         
         turn_led(RED_PIN); //Altera o estado do led
 
-        sleep_ms(100);
+        sleep_ms(100); // Permite que o LED pisque 5 vezes por segundo
     }
 }
 
@@ -141,10 +141,10 @@ void gpio_irq_handler(uint gpio, uint32_t events)
     }
 }
 
-bool turn_led(uint LED_GPIO){
+// Função para Alterna Estado do Led
+void turn_led(uint LED_GPIO){
     gpio_put(LED_GPIO, led_ativo);
     led_ativo = !led_ativo;
-    return true;
 }
 
 
