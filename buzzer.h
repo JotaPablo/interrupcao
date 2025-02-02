@@ -11,5 +11,8 @@
 // Funções para controle do buzzer
 void pwm_init_buzzer(uint pin);
 void beep(uint pin, uint frequency, uint duration_ms);
+void turn_on_buzzer(uint pin, uint frequency);
+void turn_off_buzzer(uint pin);
+
 
 #endif // BUZZER_H

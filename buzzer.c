@@ -25,3 +25,20 @@ void beep(uint pin, uint frequency, uint duration_ms) {
     sleep_ms(50); // Pausa entre beeps
 
 }
+
+void turn_on_buzzer(uint pin, uint frequency){
+
+    uint slice_num = pwm_gpio_to_slice_num(pin);
+    uint32_t clock_freq = clock_get_hz(clk_sys);
+    uint32_t top = clock_freq / frequency - 1;
+
+    pwm_set_wrap(slice_num, top);
+    pwm_set_gpio_level(pin, top / 2); // 50% de duty cycle
+
+}
+
+void turn_off_buzzer(uint pin){
+
+    pwm_set_gpio_level(pin, 0); // Desliga o PWM
+
+}

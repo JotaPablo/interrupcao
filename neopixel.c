@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include "hardware/clocks.h"
 #include "pico/stdlib.h"
-#include "buzzer.h"
 
 
 // Buffer de pixels que formam a matriz.

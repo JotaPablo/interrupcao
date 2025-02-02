@@ -11,18 +11,27 @@
 #define BUTTON_A 5
 #define BUTTON_B 6
 
-const uint32_t TEMPO = 100; 
+const uint32_t INTERVALO_BUZZER = 500; //ms
+static volatile uint32_t time_buzzer_activated = 0; // Armazena o tempo que foi ligado o buzzer
+static volatile bool buzzer_ativo = false; // Armazena se o buzzer está ativo
 
-static volatile uint32_t a = 0;
-static volatile bool atualizarMatriz = false;
-static volatile bool limiteExcedido = false;
 
-void setNumeroMatriz(uint32_t numero);
-void sinaliza_limite_excedido();
+static volatile uint32_t Numero = 0; // Variavel global para guardar o número que deve ser escrito na matriz de led
+static volatile bool atualizarMatriz = false; // Flag para se preciso atualizar a matriz de leds
+static volatile bool limiteExcedido = false; // Flag acioda se houve a tentativa de incrementar o número 9 ou de decrementar o 0
 
+//Desenha um número na matriz de led (De 0 á 9), podendo escolher qual a cor do número e qual a cor do fundo
+void exibirNumeroComFundo(uint32_t numero, 
+                             uint8_t num_r, uint8_t num_g, uint8_t num_b,
+                             uint8_t bg_r, uint8_t bg_g, uint8_t bg_b);
 
 static volatile uint32_t last_time = 0; // Armazena o tempo do último evento (em microssegundos)
-static void gpio_irq_handler(uint gpio, uint32_t events);
+static void gpio_irq_handler(uint gpio, uint32_t events); // Função para gerenciar as interrupções dos botões
+
+
+static volatile bool led_ativo = false; // Guarda o estado atual do led
+// Esta função alterna o estado do LED
+bool turn_led(uint LED_GPIO);
 
 
 int main()
@@ -36,9 +45,9 @@ int main()
     gpio_init(BLUE_PIN);              // Inicializa o pino do LED
     gpio_set_dir(BLUE_PIN, GPIO_OUT); // Configura o pino como saída
 
-    pwm_init_buzzer(BUZZER_PIN);
+    pwm_init_buzzer(BUZZER_PIN); // Inicia as configurações do Buzzer
 
-    npInit(LED_PIN);
+    npInit(LED_PIN); // Inicia as configurações da Matriz de Led
 
     gpio_init(BUTTON_A);
     gpio_set_dir(BUTTON_A, GPIO_IN); // Configura o pino como entrada
@@ -48,37 +57,61 @@ int main()
     gpio_set_dir(BUTTON_B, GPIO_IN); // Configura o pino como entrada
     gpio_pull_up(BUTTON_B);          // Habilita o pull-up interno
 
-    
+    // Configurações para as interrupções
     gpio_set_irq_enabled_with_callback(BUTTON_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
     gpio_set_irq_enabled_with_callback(BUTTON_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
 
-   
-    setNumeroMatriz(a);
+    //struct repeating_timer timer;
+    //Configura para chamar semaforo_callback a cada 100 ms fazendo o LED piscar 5 vezes em um segundo
+    //add_repeating_timer_ms(100, turn_led_callback, NULL, &timer);
+    
+    // Exibe o número verde com fundo preto(leds desligados)
+    exibirNumeroComFundo(Numero,
+                                    0, 10, 0,
+                                    0, 0, 0);
     while (true) {
 
-        // Código para piscar o LED RGB e Atualizar matriz()
-        for(int i = 0; i < 5; i++){
+        uint32_t tempo_atual = to_ms_since_boot(get_absolute_time());
 
-            if(limiteExcedido){
-                sinaliza_limite_excedido();
-                limiteExcedido = false;
-            }
-
-            if (atualizarMatriz) {
-                setNumeroMatriz(a);  // Atualiza a matriz
-                atualizarMatriz = false;  // Reseta a flag
-            }
-
-            gpio_put(RED_PIN, true);
-            //gpio_put(GREEN_PIN, true);
-            //gpio_put(BLUE_PIN, true);
-            sleep_ms(TEMPO);
-
-            gpio_put(RED_PIN, false);
-            //gpio_put(GREEN_PIN, false);
-            //gpio_put(BLUE_PIN, false);
-            sleep_ms(TEMPO);
+        
+        if(limiteExcedido){
+            limiteExcedido = false; // Reseta a flag
+            turn_on_buzzer(BUZZER_PIN, 2000); // Liga o Buzzer
+            buzzer_ativo = true; // Marca Buzzer como Ativado
+            time_buzzer_activated = to_ms_since_boot(get_absolute_time()); // Atualiza qual o tempo que o buzzer foi ativado
+            // Coloca o número atual como vvermelho
+            exibirNumeroComFundo(Numero,
+                                10, 0, 0,
+                                0, 0, 0);
         }
+
+        // Se o buzzer tiver ativo e tiverem se passado 500 ms
+        if(buzzer_ativo && tempo_atual - time_buzzer_activated >= INTERVALO_BUZZER){
+            turn_off_buzzer(BUZZER_PIN); // Desliga o Buzzer
+            buzzer_ativo = false; // Marca o buzzer como desativado
+            // Coloca o número atual como verde novamente
+            exibirNumeroComFundo(Numero,
+                                0, 10, 0,
+                                0, 0, 0);
+        }
+
+        if (atualizarMatriz) {
+            // Coloca o número atual como verde
+            exibirNumeroComFundo(Numero,
+                                0, 10, 0,
+                                0, 0, 0); // Atualiza Matriz
+            atualizarMatriz = false;  // Reseta a flag
+            // Se eu pedir pra atualizar mas o intervalo do buzzer ainda não acabou, o desativa antes
+            if(buzzer_ativo){
+                turn_off_buzzer(BUZZER_PIN);
+                buzzer_ativo = false;
+            }
+        }
+
+        
+        turn_led(RED_PIN); //Altera o estado do led
+
+        sleep_ms(100);
     }
 }
 
@@ -91,361 +124,175 @@ void gpio_irq_handler(uint gpio, uint32_t events)
 
         if (gpio == BUTTON_A) {
             // Lógica para o botão A
-            if (a == 9) limiteExcedido = true;
+            if (Numero == 9) limiteExcedido = true;
             else {
-                a++;  // incrementa a variavel
+                Numero++;  // incrementa a variavel
                 atualizarMatriz = true;
             }
         } else if (gpio == BUTTON_B) {
             // Lógica para o botão B (você pode modificar a ação aqui)
-            if (a == 0) {
+            if (Numero == 0) {
                 limiteExcedido = true;
             } else {
-                a--;  // Decrementa a variável
+                Numero--;  // Decrementa a variável
                 atualizarMatriz = true;
             }
         }
     }
 }
 
+bool turn_led(uint LED_GPIO){
+    gpio_put(LED_GPIO, led_ativo);
+    led_ativo = !led_ativo;
+    return true;
+}
 
-void setNumeroMatriz(uint32_t numero){
 
-    uint32_t brilho = 255;
-    
-    npClear();
+void exibirNumeroComFundo(uint32_t numero, 
+                             uint8_t num_r, uint8_t num_g, uint8_t num_b,
+                             uint8_t bg_r, uint8_t bg_g, uint8_t bg_b) {
+    // Preenche todo o fundo primeiro
+    for(int i = 0; i < 25; i++) {
+        npSetLED(i, bg_r, bg_g, bg_b);
+    }
 
     switch(numero){
         case 0:
-            // Linha superior
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(2, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-            // Linhas do meio (lados esquerdo e direito)
-            npSetLED(getIndex(1, 3), 0, brilho, 0);
-            npSetLED(getIndex(3, 3), 0, brilho, 0);
-
-            npSetLED(getIndex(1, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-
-            npSetLED(getIndex(1, 1), 0, brilho, 0);
-            npSetLED(getIndex(3, 1), 0, brilho, 0);
-
-            // Linha inferior
-            npSetLED(getIndex(1, 0), 0, brilho, 0);
-            npSetLED(getIndex(2, 0), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-
-            // Atualiza a matriz de LEDs
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(1,3), num_r,num_g,num_b);
+            npSetLED(getIndex(3,3), num_r,num_g,num_b);
+            npSetLED(getIndex(1,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(1,1), num_r,num_g,num_b);
+            npSetLED(getIndex(3,1), num_r,num_g,num_b);
+            npSetLED(getIndex(1,0), num_r,num_g,num_b);
+            npSetLED(getIndex(2,0), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
-        
+
         case 1:
-            // Coluna central
-            npSetLED(getIndex(2, 4), 0, brilho, 0); // Topo
-            npSetLED(getIndex(2, 3), 0, brilho, 0);
-            npSetLED(getIndex(2, 2), 0, brilho, 0);
-            npSetLED(getIndex(2, 1), 0, brilho, 0);
-            npSetLED(getIndex(2, 0), 0, brilho, 0); // Base
-
-            // Pequeno traço superior à esquerda
-            npSetLED(getIndex(1, 3), 0, brilho, 0);
-
-            //Base
-            npSetLED(getIndex(1, 0), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-
-            // Atualiza a matriz de LEDs
-            npWrite();
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(1,3), num_r,num_g,num_b);
+            npSetLED(getIndex(2,3), num_r,num_g,num_b);
+            npSetLED(getIndex(2,2), num_r,num_g,num_b);
+            npSetLED(getIndex(2,1), num_r,num_g,num_b);
+            npSetLED(getIndex(1,0), num_r,num_g,num_b);
+            npSetLED(getIndex(2,0), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
-        
+
         case 2:
-            // Linha superior
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(2, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-            // Meio
-            npSetLED(getIndex(3, 3), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-            npSetLED(getIndex(2, 2), 0, brilho, 0);
-            npSetLED(getIndex(1, 2), 0, brilho, 0);
-            npSetLED(getIndex(1, 1), 0, brilho, 0);
-
-            // Linha inferior
-            npSetLED(getIndex(1, 0), 0, brilho, 0);
-            npSetLED(getIndex(2, 0), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,3), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(2,2), num_r,num_g,num_b);
+            npSetLED(getIndex(1,2), num_r,num_g,num_b);
+            npSetLED(getIndex(1,1), num_r,num_g,num_b);
+            npSetLED(getIndex(1,0), num_r,num_g,num_b);
+            npSetLED(getIndex(2,0), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
-        
+
         case 3:
-            // Linha superior
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(2, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-            // Linha do meio
-            npSetLED(getIndex(3, 3), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 1), 0, brilho, 0);
-            npSetLED(getIndex(2, 2), 0, brilho, 0);
-
-            // Linha inferior
-            npSetLED(getIndex(1, 0), 0, brilho, 0);
-            npSetLED(getIndex(2, 0), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,3), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(2,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,1), num_r,num_g,num_b);
+            npSetLED(getIndex(1,0), num_r,num_g,num_b);
+            npSetLED(getIndex(2,0), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
+
         case 4:
-            // Coluna esquerda
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(1, 3), 0, brilho, 0);
-            npSetLED(getIndex(1, 2), 0, brilho, 0);
-
-            // Linha do meio
-            npSetLED(getIndex(2, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-
-            // Coluna direita
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 3), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 1), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(1,3), num_r,num_g,num_b);
+            npSetLED(getIndex(3,3), num_r,num_g,num_b);
+            npSetLED(getIndex(1,2), num_r,num_g,num_b);
+            npSetLED(getIndex(2,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,1), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
-        
+
         case 5:
-            // Linha superior
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(2, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-            // Linha do meio
-            npSetLED(getIndex(1, 3), 0, brilho, 0);
-            npSetLED(getIndex(1, 2), 0, brilho, 0);
-            npSetLED(getIndex(2, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 1), 0, brilho, 0);
-
-            // Linha inferior
-            npSetLED(getIndex(1, 0), 0, brilho, 0);
-            npSetLED(getIndex(2, 0), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(1,3), num_r,num_g,num_b);
+            npSetLED(getIndex(1,2), num_r,num_g,num_b);
+            npSetLED(getIndex(2,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,1), num_r,num_g,num_b);
+            npSetLED(getIndex(1,0), num_r,num_g,num_b);
+            npSetLED(getIndex(2,0), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
 
         case 6:
-            // Linha superior
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(2, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-            // Linha do meio
-            npSetLED(getIndex(1, 3), 0, brilho, 0);
-            npSetLED(getIndex(2, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 1), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-
-
-            // Linha inferior
-            npSetLED(getIndex(1, 0), 0, brilho, 0);
-            npSetLED(getIndex(2, 0), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-
-            // Coluna esquerda
-            npSetLED(getIndex(1, 3), 0, brilho, 0);
-            npSetLED(getIndex(1, 2), 0, brilho, 0);
-            npSetLED(getIndex(1, 1), 0, brilho, 0);
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(1,3), num_r,num_g,num_b);
+            npSetLED(getIndex(1,2), num_r,num_g,num_b);
+            npSetLED(getIndex(2,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(1,1), num_r,num_g,num_b);
+            npSetLED(getIndex(3,1), num_r,num_g,num_b);
+            npSetLED(getIndex(1,0), num_r,num_g,num_b);
+            npSetLED(getIndex(2,0), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
-        
+
         case 7:
-            // Linha superior
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(2, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-            // Coluna direita
-            npSetLED(getIndex(3, 3), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 1), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,3), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,1), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
 
         case 8:
-             // Linha superior
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(2, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-            // Linhas do meio (lados esquerdo e direito)
-            npSetLED(getIndex(1, 3), 0, brilho, 0);
-            npSetLED(getIndex(3, 3), 0, brilho, 0);
-
-            npSetLED(getIndex(1, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-
-            npSetLED(getIndex(1, 1), 0, brilho, 0);
-            npSetLED(getIndex(3, 1), 0, brilho, 0);
-
-            npSetLED(getIndex(2, 2), 0, brilho, 0);
-
-            // Linha inferior
-            npSetLED(getIndex(1, 0), 0, brilho, 0);
-            npSetLED(getIndex(2, 0), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-
-            // Atualiza a matriz de LEDs
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(1,3), num_r,num_g,num_b);
+            npSetLED(getIndex(3,3), num_r,num_g,num_b);
+            npSetLED(getIndex(1,2), num_r,num_g,num_b);
+            npSetLED(getIndex(2,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(1,1), num_r,num_g,num_b);
+            npSetLED(getIndex(3,1), num_r,num_g,num_b);
+            npSetLED(getIndex(1,0), num_r,num_g,num_b);
+            npSetLED(getIndex(2,0), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
-        
+
         case 9:
-            // Linha superior
-            npSetLED(getIndex(1, 4), 0, brilho, 0);
-            npSetLED(getIndex(2, 4), 0, brilho, 0);
-            npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-            // Linha do meio
-            npSetLED(getIndex(1, 3), 0, brilho, 0);
-            npSetLED(getIndex(2, 2), 0, brilho, 0);
-            npSetLED(getIndex(1, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-
-
-            // Linha inferior
-            npSetLED(getIndex(1, 0), 0, brilho, 0);
-            npSetLED(getIndex(2, 0), 0, brilho, 0);
-            npSetLED(getIndex(3, 0), 0, brilho, 0);
-
-            // Coluna direita
-            npSetLED(getIndex(3, 3), 0, brilho, 0);
-            npSetLED(getIndex(3, 2), 0, brilho, 0);
-            npSetLED(getIndex(3, 1), 0, brilho, 0);
-            npWrite();
+            npSetLED(getIndex(1,4), num_r,num_g,num_b);
+            npSetLED(getIndex(2,4), num_r,num_g,num_b);
+            npSetLED(getIndex(3,4), num_r,num_g,num_b);
+            npSetLED(getIndex(1,3), num_r,num_g,num_b);
+            npSetLED(getIndex(3,3), num_r,num_g,num_b);
+            npSetLED(getIndex(1,2), num_r,num_g,num_b);
+            npSetLED(getIndex(2,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,2), num_r,num_g,num_b);
+            npSetLED(getIndex(3,1), num_r,num_g,num_b);
+            npSetLED(getIndex(1,0), num_r,num_g,num_b);
+            npSetLED(getIndex(2,0), num_r,num_g,num_b);
+            npSetLED(getIndex(3,0), num_r,num_g,num_b);
             break;
-        
+
+        default: break;
     }
-}
-void sinaliza_limite_excedido(){
-
-    uint32_t brilho = 255;
-    npClear();
-
-    if(a == 0){
-        //Transforma o 0 em vermelho
-        // Linha superior
-        npSetLED(getIndex(1, 4), 255, 0, 0);
-        npSetLED(getIndex(2, 4), 255, 0, 0);
-        npSetLED(getIndex(3, 4), 255, 0, 0);
-
-        // Linhas do meio (lados esquerdo e direito)
-        npSetLED(getIndex(1, 3), 255, 0, 0);
-        npSetLED(getIndex(3, 3), 255, 0, 0);
-
-        npSetLED(getIndex(1, 2), 255, 0, 0);
-        npSetLED(getIndex(3, 2), 255, 0, 0);
-
-        npSetLED(getIndex(1, 1), 255, 0, 0);
-        npSetLED(getIndex(3, 1), 255, 0, 0);
-
-        // Linha inferior
-        npSetLED(getIndex(1, 0), 255, 0, 0);
-        npSetLED(getIndex(2, 0), 255, 0, 0);
-        npSetLED(getIndex(3, 0), 255, 0, 0);
-
-        // Atualiza a matriz de LEDs
-        npWrite();
-
-        //Faz um beep
-        beep(BUZZER_PIN, 2000, 500);
-
-        //Transforma o 0 em verde novamente
-        // Linha superior
-        npSetLED(getIndex(1, 4), 0, brilho, 0);
-        npSetLED(getIndex(2, 4), 0, brilho, 0);
-        npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-        // Linhas do meio (lados esquerdo e direito)
-        npSetLED(getIndex(1, 3), 0, brilho, 0);
-        npSetLED(getIndex(3, 3), 0, brilho, 0);
-
-        npSetLED(getIndex(1, 2), 0, brilho, 0);
-        npSetLED(getIndex(3, 2), 0, brilho, 0);
-
-        npSetLED(getIndex(1, 1), 0, brilho, 0);
-        npSetLED(getIndex(3, 1), 0, brilho, 0);
-
-        // Linha inferior
-        npSetLED(getIndex(1, 0), 0, brilho, 0);
-        npSetLED(getIndex(2, 0), 0, brilho, 0);
-        npSetLED(getIndex(3, 0), 0, brilho, 0);
-
-        // Atualiza a matriz de LEDs
-        npWrite();
-
-    }
-    //Se a é igual a 9
-    else{
-        // Transforma o 0 em vermelho
-        // Linha superior
-        npSetLED(getIndex(1, 4), 255, 0, 0);
-        npSetLED(getIndex(2, 4), 255, 0, 0);
-        npSetLED(getIndex(3, 4), 255, 0, 0);
-
-        // Linha do meio
-        npSetLED(getIndex(1, 3), 255, 0, 0);
-        npSetLED(getIndex(2, 2), 255, 0, 0);
-        npSetLED(getIndex(1, 2), 255, 0, 0);
-        npSetLED(getIndex(3, 2), 255, 0, 0);
-
-        // Linha inferior
-        npSetLED(getIndex(1, 0), 255, 0, 0);
-        npSetLED(getIndex(2, 0), 255, 0, 0);
-        npSetLED(getIndex(3, 0), 255, 0, 0);
-
-        // Coluna direita
-        npSetLED(getIndex(3, 3), 255, 0, 0);
-        npSetLED(getIndex(3, 2), 255, 0, 0);
-        npSetLED(getIndex(3, 1), 255, 0, 0);
-
-        // Atualiza a matriz de LEDs
-        npWrite();
-
-        // Faz um beep
-        beep(BUZZER_PIN, 2000, 500);
-
-        // Transforma o 0 em verde novamente
-        // Linha superior
-        npSetLED(getIndex(1, 4), 0, brilho, 0);
-        npSetLED(getIndex(2, 4), 0, brilho, 0);
-        npSetLED(getIndex(3, 4), 0, brilho, 0);
-
-        // Linha do meio
-        npSetLED(getIndex(1, 3), 0, brilho, 0);
-        npSetLED(getIndex(2, 2), 0, brilho, 0);
-        npSetLED(getIndex(1, 2), 0, brilho, 0);
-        npSetLED(getIndex(3, 2), 0, brilho, 0);
-
-        // Linha inferior
-        npSetLED(getIndex(1, 0), 0, brilho, 0);
-        npSetLED(getIndex(2, 0), 0, brilho, 0);
-        npSetLED(getIndex(3, 0), 0, brilho, 0);
-
-        // Coluna direita
-        npSetLED(getIndex(3, 3), 0, brilho, 0);
-        npSetLED(getIndex(3, 2), 0, brilho, 0);
-        npSetLED(getIndex(3, 1), 0, brilho, 0);
-
-        // Atualiza a matriz de LEDs
-        npWrite();
-
-    }
-
-
-
+    npWrite();
 }
