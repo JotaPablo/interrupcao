@@ -63,11 +63,12 @@ Sistema interativo que combina:
      cmake ..
      make
      ```
+   - Ou através da extensão da Raspeberry Pi Pico no VS CODE
 
 3. **Execução**
    - **Na placa física:** 
      - Conecte a placa ao computador em modo BOOTSEL.
-     - Copie o arquivo `.uf2` gerado na pasta `build` para o dispositivo identificado como `RPI-RP2`.
+     - Copie o arquivo `.uf2` gerado na pasta `build` para o dispositivo identificado como `RPI-RP2` ou Envie através da extensão da Raspeberry Pi Pico no VS CODE.
    - **No simulador Wokwi:** 
      - Abra o arquivo `diagram.json` no Wokwi e execute a simulação.
 
