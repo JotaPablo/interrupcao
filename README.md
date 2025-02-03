@@ -86,5 +86,3 @@ Sistema interativo que combina:
 ## 🎥 Vídeo Demonstrativo
 [![Assista ao vídeo no YouTube](https://img.youtube.com/vi/KJeYjjQQT4g/hqdefault.jpg)](https://www.youtube.com/watch?v=KJeYjjQQT4g)
 
-
-Caso tenha mais dúvidas ou precise de algo adicional, me avise! 🚀
